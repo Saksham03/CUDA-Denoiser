@@ -154,11 +154,6 @@ static LBVHNode* dev_lbvh_nodes = NULL;
 // TODO: static variables for device memory, any extra info you need, etc
 // ...
 
-void InitDataContainer(GuiDataContainer* imGuiData)
-{
-	guiData = imGuiData;
-}
-
 void pathtraceInit(Scene* scene) {
 	hst_scene = scene;
 
@@ -697,11 +692,6 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 #endif
 
 		iterationComplete = (depth == traceDepth) || (num_paths == 0);
-
-		if (guiData != NULL)
-		{
-			guiData->TracedDepth = depth;
-		}
 	}
 
 	// Assemble this iteration and apply it to the image
@@ -714,7 +704,7 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 	sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image);
 
 	// CHECKITOUT: use dev_image as reference if you want to implement saving denoised images.
-  / Otherwise, screenshots are also acceptable.
+	// Otherwise, screenshots are also acceptable.
 	// Retrieve image from GPU
 	cudaMemcpy(hst_scene->state.image.data(), dev_image,
 		pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);

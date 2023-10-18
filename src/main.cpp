@@ -82,11 +82,6 @@ int main(int argc, char** argv) {
     glm::vec3 right = glm::cross(view, up);
     up = glm::cross(right, view);
 
-	glm::vec3 view = cam.view;
-	glm::vec3 up = cam.up;
-	glm::vec3 right = glm::cross(view, up);
-	up = glm::cross(right, view);
-
 	cameraPosition = cam.position;
 
 	// compute phi (horizontal) and theta (vertical) relative 3D axis
@@ -100,10 +95,6 @@ int main(int argc, char** argv) {
 
 	// Initialize CUDA and GL components
 	init();
-
-	// Initialize ImGui Data
-	InitImguiData(guiData);
-	InitDataContainer(guiData);
 
 	// GLFW main loop
 	mainLoop();
@@ -198,7 +189,7 @@ void runCuda() {
 
         // execute the kernel
         int frame = 0;
-        pathtrace(frame, iteration);
+        pathtrace(pbo_dptr, frame, iteration);
     }
 
     if (ui_showGbuffer) {
