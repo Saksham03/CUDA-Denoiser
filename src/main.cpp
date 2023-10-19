@@ -196,7 +196,12 @@ void runCuda() {
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr, static_cast<GBufferType>(ui_gBufSelection));
     } else {
-      showImage(pbo_dptr, iteration);
+		if (ui_denoise) {
+			denoiseImage(pbo_dptr, iteration, ui_filterSize);
+		}
+		else {
+			showImage(pbo_dptr, iteration);
+		}
     }
 
     // unmap buffer object

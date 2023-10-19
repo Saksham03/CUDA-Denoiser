@@ -39,6 +39,22 @@ void checkCUDAErrorFn(const char* msg, const char* file, int line) {
 #endif
 }
 
+const float kernel[] = {
+	0.003663, 0.014652, 0.025641, 0.014652, 0.003663,
+	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+	0.025641, 0.095238, 0.150183, 0.095238, 0.025641,
+	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+	0.003663, 0.014652, 0.025641, 0.014652, 0.003663
+};
+
+const glm::ivec2 offset[] = {
+	glm::ivec2(-2,-2), glm::ivec2(-2,-1), glm::ivec2(-2,0), glm::ivec2(-2,1), glm::ivec2(-2,2),
+	glm::ivec2(-1,-2), glm::ivec2(-1,-1), glm::ivec2(-1,0), glm::ivec2(-1,1), glm::ivec2(-1,2),
+	glm::ivec2(0,-2), glm::ivec2(0,-1), glm::ivec2(0,0), glm::ivec2(0,1), glm::ivec2(0,2),
+	glm::ivec2(1,-2), glm::ivec2(1,-1), glm::ivec2(1,0), glm::ivec2(1,1), glm::ivec2(1,2),
+	glm::ivec2(2,-2), glm::ivec2(2,-1), glm::ivec2(2,0), glm::ivec2(2,1), glm::ivec2(2,2)
+};
+
 PerformanceTimer& timer()
 {
 	static PerformanceTimer timer;
@@ -85,6 +101,42 @@ __host__ __device__
 thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int depth) {
 	int h = utilhash((1 << 31) | (depth << 22) | iter) ^ utilhash(index);
 	return thrust::default_random_engine(h);
+}
+
+__global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, glm::vec3* image, glm::vec3* image_denoised) {
+	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
+	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
+	if (x >= resolution.x || y >= resolution.y) {
+		return;
+	}
+	int idx = x + (y * resolution.x);
+
+	float kernel[] = {
+	0.003663, 0.014652, 0.025641, 0.014652, 0.003663,
+	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+	0.025641, 0.095238, 0.150183, 0.095238, 0.025641,
+	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
+	0.003663, 0.014652, 0.025641, 0.014652, 0.003663
+	};
+	
+	glm::ivec2 offset[] = {
+	glm::ivec2(-2,-2), glm::ivec2(-2,-1), glm::ivec2(-2,0), glm::ivec2(-2,1), glm::ivec2(-2,2),
+	glm::ivec2(-1,-2), glm::ivec2(-1,-1), glm::ivec2(-1,0), glm::ivec2(-1,1), glm::ivec2(-1,2),
+	glm::ivec2(0,-2), glm::ivec2(0,-1), glm::ivec2(0,0), glm::ivec2(0,1), glm::ivec2(0,2),
+	glm::ivec2(1,-2), glm::ivec2(1,-1), glm::ivec2(1,0), glm::ivec2(1,1), glm::ivec2(1,2),
+	glm::ivec2(2,-2), glm::ivec2(2,-1), glm::ivec2(2,0), glm::ivec2(2,1), glm::ivec2(2,2)
+	};
+
+	glm::vec3 sum = glm::vec3(0.f);
+	float weights_sum = 0.0;
+	for (int i = 0; i < 25; i++) {
+		glm::ivec2 pixel_to_sample = glm::ivec2(x, y) + offset[i] * stepwidth;
+		pixel_to_sample = glm::min(resolution - 1, glm::max(glm::ivec2(0,0), pixel_to_sample));
+		int index = pixel_to_sample.x + (pixel_to_sample.y * resolution.x);
+		sum += image[index] * kernel[i];
+		weights_sum += kernel[i];
+	}	
+	image_denoised[idx] = sum / weights_sum;
 }
 
 //Kernel that writes the image to the OpenGL PBO directly.
@@ -151,6 +203,8 @@ __global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* g
 
 static Scene * hst_scene = NULL;
 static glm::vec3 * dev_image = NULL;
+static glm::vec3* dev_image_denoised = NULL;
+static glm::vec3* dev_image_denoised_temp = NULL;
 static Geom * dev_geoms = NULL;
 static Material * dev_materials = NULL;
 static Triangle* dev_tris = NULL;
@@ -176,6 +230,12 @@ void pathtraceInit(Scene* scene) {
 
 	cudaMalloc(&dev_image, pixelcount * sizeof(glm::vec3));
 	cudaMemset(dev_image, 0, pixelcount * sizeof(glm::vec3));
+
+	cudaMalloc(&dev_image_denoised, pixelcount * sizeof(glm::vec3));
+	cudaMemset(dev_image_denoised, 0, pixelcount * sizeof(glm::vec3));
+
+	cudaMalloc(&dev_image_denoised_temp, pixelcount * sizeof(glm::vec3));
+	cudaMemset(dev_image_denoised_temp, 0, pixelcount * sizeof(glm::vec3));
 
 	cudaMalloc(&dev_paths, pixelcount * sizeof(PathSegment));
 
@@ -214,6 +274,8 @@ void pathtraceInit(Scene* scene) {
 
 void pathtraceFree() {
 	cudaFree(dev_image);  // no-op if dev_image is null
+	cudaFree(dev_image_denoised);
+	cudaFree(dev_image_denoised_temp);
 	cudaFree(dev_paths);
 	cudaFree(dev_geoms);
 	cudaFree(dev_materials);
@@ -749,4 +811,24 @@ const Camera &cam = hst_scene->state.camera;
 
     // Send results to OpenGL buffer for rendering
     sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
+}
+
+void denoiseImage(uchar4* pbo, int iter, int filterSize) {
+	const Camera& cam = hst_scene->state.camera;
+	const dim3 blockSize2d(8, 8);
+	const dim3 blocksPerGrid2d(
+		(cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
+		(cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
+
+	// Denoise the current image	
+	for (int stepwidth = 0; stepwidth < ilog2(filterSize) - 1; stepwidth++) {
+		if (stepwidth == 0) {
+			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, 1 << stepwidth, dev_image, dev_image_denoised);
+		}
+		else {
+			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, 1 << stepwidth, dev_image_denoised, dev_image_denoised_temp);
+			std::swap(dev_image_denoised, dev_image_denoised_temp);
+		}		
+	}
+	sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image_denoised);
 }
