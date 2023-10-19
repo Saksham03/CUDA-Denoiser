@@ -8,6 +8,18 @@
 
 #define BACKGROUND_COLOR (glm::vec3(0.0f))
 
+#define GBUFFERS_ENUM_VALUES(X) \
+    X(POSITION)           \
+    X(NORMALS)             \
+    X(TIME_OF_ISECT)
+
+enum class GBufferType
+{
+#define X(Enum) Enum,
+    GBUFFERS_ENUM_VALUES(X)
+#undef X
+};
+
 enum GeomType {
     SPHERE,
     CUBE,
@@ -129,4 +141,6 @@ struct ShadeableIntersection {
 // What information might be helpful for guiding a denoising filter?
 struct GBufferPixel {
   float t;
+  glm::vec3 pos;
+  glm::vec3 nor;
 };

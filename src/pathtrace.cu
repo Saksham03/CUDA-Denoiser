@@ -120,18 +120,32 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
 	}
 }
 
-__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer) {
+__global__ void gbufferToPBO(uchar4* pbo, glm::ivec2 resolution, GBufferPixel* gBuffer, GBufferType gBufType) {
     int x = (blockIdx.x * blockDim.x) + threadIdx.x;
     int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 
     if (x < resolution.x && y < resolution.y) {
         int index = x + (y * resolution.x);
-        float timeToIntersect = gBuffer[index].t * 256.0;
+        float timeToIntersect = gBuffer[index].t * 255.0;
 
         pbo[index].w = 0;
-        pbo[index].x = timeToIntersect;
-        pbo[index].y = timeToIntersect;
-        pbo[index].z = timeToIntersect;
+		if (gBufType == GBufferType::TIME_OF_ISECT) {
+			pbo[index].x = timeToIntersect;
+			pbo[index].y = timeToIntersect;
+			pbo[index].z = timeToIntersect;
+		}
+		
+		else if (gBufType == GBufferType::POSITION) {
+			pbo[index].x = abs(gBuffer[index].pos.x) * 0.1f * 255.0;
+			pbo[index].y = abs(gBuffer[index].pos.y) * 0.1f * 255.0;
+			pbo[index].z = abs(gBuffer[index].pos.z) * 0.1f * 255.0;
+		}
+
+		else if (gBufType == GBufferType::NORMALS) {
+			pbo[index].x = (gBuffer[index].nor.r + 1.f) * 0.5f * 255.0;
+			pbo[index].y = (gBuffer[index].nor.g + 1.f) * 0.5f * 255.0;
+			pbo[index].z = (gBuffer[index].nor.b + 1.f) * 0.5f * 255.0;
+		}
     }
 }
 
@@ -528,6 +542,8 @@ __global__ void generateGBuffer (
   if (idx < num_paths)
   {
     gBuffer[idx].t = shadeableIntersections[idx].t;
+	gBuffer[idx].pos = pathSegments[idx].ray.origin + shadeableIntersections[idx].t * pathSegments[idx].ray.direction;
+	gBuffer[idx].nor = shadeableIntersections[idx].surfaceNormal;
   }
 }
 
@@ -713,15 +729,15 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 }
 
 // CHECKITOUT: this kernel "post-processes" the gbuffer/gbuffers into something that you can visualize for debugging.
-void showGBuffer(uchar4* pbo) {
+void showGBuffer(uchar4* pbo, GBufferType gBufType) {
     const Camera &cam = hst_scene->state.camera;
     const dim3 blockSize2d(8, 8);
     const dim3 blocksPerGrid2d(
             (cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
             (cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
-    // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization
-    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer);
+    // CHECKITOUT: process the gbuffer results and send them to OpenGL buffer for visualization	
+    gbufferToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, dev_gBuffer, gBufType);
 }
 
 void showImage(uchar4* pbo, int iter) {

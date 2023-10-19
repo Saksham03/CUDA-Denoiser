@@ -222,6 +222,13 @@ void drawGui(int windowWidth, int windowHeight) {
     ImGui::Separator();
 
     ImGui::Checkbox("Show GBuffer", &ui_showGbuffer);
+    
+    const char* GBufStrings[] = {
+#define X(Enum) #Enum,
+    GBUFFERS_ENUM_VALUES(X)
+#undef X
+    };    
+    ImGui::Combo("GBuffer Type", &ui_gBufSelection, GBufStrings, IM_ARRAYSIZE(GBufStrings));
 
     ImGui::Separator();
 
