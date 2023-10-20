@@ -8,7 +8,7 @@ CUDA Denoiser For CUDA Path Tracer
 * Tested on: Windows 11 Home, AMD Ryzen 7 6800H Radeon @ 3.2GHz 16GB, NVIDIA GeForce RTX 3050 Ti Laptop GPU 4096MB
 
 ## Summary
-TODO
+This project is a CUDA-based denoiser integrated into my [CUDA Pathtracer](https://github.com/Saksham03/CUDA-Path-Tracer) and is an implementation of the paper [Edge-Avoiding A-Trous Wavelet Transform for fast Global Illumination Filtering](https://jo.dreggn.org/home/2010_atrous.pdf) by the authors Dammertz, Sewtz, Hanika, and Lensch. In summary, the A-Trous Wavelet Transform is essentially a smoothing filter guided by various geometry buffers (G-Buffers). The algorithm is extended to incorporate an edge stopping function based on the input g-buffers that allows successful elimination of noise while preserving sharp edges. I will briefly go over the implementation details followed by an evaluation of the algorithm's qualitative as well as quantitative performance.
 
 ## Representative Outcomes  
 TODO
