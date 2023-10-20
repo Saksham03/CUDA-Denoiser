@@ -51,7 +51,7 @@ Overall, in summary, I think the denoiser's results are extremely acceptable giv
 <a id="visual-2"></a>
 ## 2. Effect of Filter Size
 
-In this section, I try different sizes of the filter resolution and see how it affects the visual quality of the renders. As shown later in the Performance Analysis section, a larger filter size is naturally going to cause the denoiser to take longer to generate the final render. In addition to that, an increasing filter size also means increasing the range of influence from neighboring pixels on a particular pixel. This can have results we might or might not want. In the table below, at each filter size I note down the observations for the same and compare it with the previous iteration.
+In this section, I try different sizes of the filter resolution and see how it affects the visual quality of the renders. As shown later in the [Performance Analysis](#perf-h) section, a larger filter size is naturally going to cause the denoiser to take longer to generate the final render. In addition to that, an increasing filter size also means increasing the range of influence from neighboring pixels on a particular pixel. This can have results we might or might not want. In the table below, at each filter size I note down the observations for the same and compare it with the previous iteration.
 
 | Filter Size | Resulting Render | Observation |
 |:--:|:--:|:--:|
