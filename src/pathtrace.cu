@@ -39,22 +39,6 @@ void checkCUDAErrorFn(const char* msg, const char* file, int line) {
 #endif
 }
 
-const float kernel[] = {
-	0.003663, 0.014652, 0.025641, 0.014652, 0.003663,
-	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
-	0.025641, 0.095238, 0.150183, 0.095238, 0.025641,
-	0.014652, 0.058608, 0.095238, 0.058608, 0.014652,
-	0.003663, 0.014652, 0.025641, 0.014652, 0.003663
-};
-
-const glm::ivec2 offset[] = {
-	glm::ivec2(-2,-2), glm::ivec2(-2,-1), glm::ivec2(-2,0), glm::ivec2(-2,1), glm::ivec2(-2,2),
-	glm::ivec2(-1,-2), glm::ivec2(-1,-1), glm::ivec2(-1,0), glm::ivec2(-1,1), glm::ivec2(-1,2),
-	glm::ivec2(0,-2), glm::ivec2(0,-1), glm::ivec2(0,0), glm::ivec2(0,1), glm::ivec2(0,2),
-	glm::ivec2(1,-2), glm::ivec2(1,-1), glm::ivec2(1,0), glm::ivec2(1,1), glm::ivec2(1,2),
-	glm::ivec2(2,-2), glm::ivec2(2,-1), glm::ivec2(2,0), glm::ivec2(2,1), glm::ivec2(2,2)
-};
-
 PerformanceTimer& timer()
 {
 	static PerformanceTimer timer;
@@ -103,7 +87,8 @@ thrust::default_random_engine makeSeededRandomEngine(int iter, int index, int de
 	return thrust::default_random_engine(h);
 }
 
-__global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, glm::vec3* image, glm::vec3* image_denoised) {
+__global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, GBufferPixel* dev_gBuffer, glm::vec3* image, glm::vec3* image_denoised,
+	float color_weight, float normal_weight, float pos_weight) {
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
 	int y = (blockIdx.y * blockDim.y) + threadIdx.y;
 	if (x >= resolution.x || y >= resolution.y) {
@@ -129,12 +114,36 @@ __global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, glm::vec
 
 	glm::vec3 sum = glm::vec3(0.f);
 	float weights_sum = 0.0;
+
+	glm::vec3 c_val = image[idx];
+	glm::vec3 n_val = dev_gBuffer[idx].nor;
+	glm::vec3 p_val = dev_gBuffer[idx].pos;
+
 	for (int i = 0; i < 25; i++) {
 		glm::ivec2 pixel_to_sample = glm::ivec2(x, y) + offset[i] * stepwidth;
 		pixel_to_sample = glm::min(resolution - 1, glm::max(glm::ivec2(0,0), pixel_to_sample));
 		int index = pixel_to_sample.x + (pixel_to_sample.y * resolution.x);
-		sum += image[index] * kernel[i];
-		weights_sum += kernel[i];
+
+		//color
+		glm::vec3 col_diff = c_val - image[index];
+		float sqDiff = glm::dot(col_diff, col_diff);
+		float col_w = glm::min(glm::exp(-(sqDiff) / color_weight), 1.f);
+
+		//normal
+		glm::vec3 nor_diff = n_val - dev_gBuffer[index].nor;
+		sqDiff = glm::max(glm::dot(nor_diff, nor_diff)/float(stepwidth * stepwidth),0.f);
+		float nor_w = glm::min(glm::exp(-(sqDiff) / normal_weight), 1.f);
+
+		//position
+		glm::vec3 pos_diff = p_val - dev_gBuffer[index].pos;
+		sqDiff = glm::dot(pos_diff, pos_diff);
+		float pos_w = glm::min(glm::exp(-(sqDiff) / pos_weight), 1.f);
+
+		float weight = col_w * nor_w * pos_w;
+		
+		sum += image[index] * weight * kernel[i];
+		weights_sum += weight * kernel[i];
+		
 	}	
 	image_denoised[idx] = sum / weights_sum;
 }
@@ -245,7 +254,7 @@ void pathtraceInit(Scene* scene) {
 	cudaMalloc(&dev_materials, scene->materials.size() * sizeof(Material));
 	cudaMemcpy(dev_materials, scene->materials.data(), scene->materials.size() * sizeof(Material), cudaMemcpyHostToDevice);
   
-  cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
+	cudaMalloc(&dev_gBuffer, pixelcount * sizeof(GBufferPixel));
 
 	cudaMalloc(&dev_tris, scene->meshTris.size() * sizeof(Triangle));
 	cudaMemcpy(dev_tris, scene->meshTris.data(), scene->meshTris.size() * sizeof(Triangle), cudaMemcpyHostToDevice);
@@ -604,7 +613,7 @@ __global__ void generateGBuffer (
   if (idx < num_paths)
   {
     gBuffer[idx].t = shadeableIntersections[idx].t;
-	gBuffer[idx].pos = pathSegments[idx].ray.origin + shadeableIntersections[idx].t * pathSegments[idx].ray.direction;
+	gBuffer[idx].pos = getPointOnRay(pathSegments[idx].ray, shadeableIntersections[idx].t);
 	gBuffer[idx].nor = shadeableIntersections[idx].surfaceNormal;
   }
 }
@@ -813,7 +822,7 @@ const Camera &cam = hst_scene->state.camera;
     sendImageToPBO<<<blocksPerGrid2d, blockSize2d>>>(pbo, cam.resolution, iter, dev_image);
 }
 
-void denoiseImage(uchar4* pbo, int iter, int filterSize) {
+void denoiseImage(uchar4* pbo, int iter, int filterSize, float colorWeight, float normalWeight, float positionWeight) {
 	const Camera& cam = hst_scene->state.camera;
 	const dim3 blockSize2d(8, 8);
 	const dim3 blocksPerGrid2d(
@@ -822,13 +831,31 @@ void denoiseImage(uchar4* pbo, int iter, int filterSize) {
 
 	// Denoise the current image	
 	for (int stepwidth = 0; stepwidth < ilog2(filterSize) - 1; stepwidth++) {
-		if (stepwidth == 0) {
-			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, 1 << stepwidth, dev_image, dev_image_denoised);
+		int m = 1 << stepwidth;
+		if (stepwidth == 0) {			
+			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (
+				cam.resolution,
+				1 << stepwidth,
+				dev_gBuffer,
+				dev_image,
+				dev_image_denoised,
+				colorWeight,
+				normalWeight,
+				positionWeight);
 		}
 		else {
-			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (cam.resolution, 1 << stepwidth, dev_image_denoised, dev_image_denoised_temp);
+			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (
+				cam.resolution,
+				1 << stepwidth,
+				dev_gBuffer,
+				dev_image_denoised,
+				dev_image_denoised_temp,
+				colorWeight,
+				normalWeight,
+				positionWeight);
 			std::swap(dev_image_denoised, dev_image_denoised_temp);
-		}		
+		}
+		cudaDeviceSynchronize();
 	}
 	sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image_denoised);
 }
