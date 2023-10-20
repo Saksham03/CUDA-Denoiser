@@ -119,6 +119,7 @@ __global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, GBufferP
 	glm::vec3 n_val = dev_gBuffer[idx].nor;
 	glm::vec3 p_val = dev_gBuffer[idx].pos;
 
+
 	for (int i = 0; i < 25; i++) {
 		glm::ivec2 pixel_to_sample = glm::ivec2(x, y) + offset[i] * stepwidth;
 		pixel_to_sample = glm::min(resolution - 1, glm::max(glm::ivec2(0,0), pixel_to_sample));
@@ -127,28 +128,29 @@ __global__ void kernDenoiseATrous(glm::ivec2 resolution, int stepwidth, GBufferP
 		//color
 		glm::vec3 col_diff = c_val - image[index];
 		float sqDiff = glm::dot(col_diff, col_diff);
-		float col_w = glm::min(glm::exp(-(sqDiff) / color_weight), 1.f);
+		float col_w = glm::min(glm::exp(-sqDiff / color_weight), 1.f);
 
 		//normal
 		glm::vec3 nor_diff = n_val - dev_gBuffer[index].nor;
-		sqDiff = glm::max(glm::dot(nor_diff, nor_diff)/float(stepwidth * stepwidth),0.f);
-		float nor_w = glm::min(glm::exp(-(sqDiff) / normal_weight), 1.f);
+		sqDiff = glm::max(glm::dot(nor_diff, nor_diff),0.f);
+		float nor_w = glm::min(glm::exp(-sqDiff / normal_weight), 1.f);
 
 		//position
 		glm::vec3 pos_diff = p_val - dev_gBuffer[index].pos;
 		sqDiff = glm::dot(pos_diff, pos_diff);
-		float pos_w = glm::min(glm::exp(-(sqDiff) / pos_weight), 1.f);
+		float pos_w = glm::min(glm::exp(-sqDiff / pos_weight), 1.f);
 
-		float weight = col_w * nor_w * pos_w;
+		float weight = col_w *nor_w* pos_w;
 		
 		sum += image[index] * weight * kernel[i];
 		weights_sum += weight * kernel[i];
-		
-	}	
+
+		//sum += image[index] *  kernel[i];
+		//weights_sum +=  kernel[i];		
+	}
 	image_denoised[idx] = sum / weights_sum;
 }
 
-//Kernel that writes the image to the OpenGL PBO directly.
 __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
 	int iter, glm::vec3* image) {
 	int x = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -158,20 +160,15 @@ __global__ void sendImageToPBO(uchar4* pbo, glm::ivec2 resolution,
 		int index = x + (y * resolution.x);
 		glm::vec3 pix = image[index];
 
-		//pix = pix/(pix + glm::vec3(1.f));
-		//pix = glm::pow(pix, glm::vec3(1.f/2.2f));
-
-		pix /= iter;
 #if REINHARD_GAMMA
-		pix /= (pix + glm::vec3(1.0f));
-		pix = glm::pow(pix, glm::vec3(1.f/2.2f));
+		pix /= pix + glm::vec3(1.0f);
+		pix = glm::pow(pix, glm::vec3(1.0 / 2.2));
 #endif
 
 		glm::ivec3 color;
 		color.x = glm::clamp((int)(pix.x * 255.0), 0, 255);
 		color.y = glm::clamp((int)(pix.y * 255.0), 0, 255);
 		color.z = glm::clamp((int)(pix.z * 255.0), 0, 255);
-
 
 		// Each thread writes one pixel location in the texture (textel)
 		pbo[index].w = 0;
@@ -619,14 +616,14 @@ __global__ void generateGBuffer (
 }
 
 // Add the current iteration's output to the overall image
-__global__ void finalGather(int nPaths, glm::vec3* image, PathSegment* iterationPaths)
+__global__ void finalGather(int nPaths, int nIters, glm::vec3* image, PathSegment* iterationPaths)
 {
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (index < nPaths)
 	{
-		PathSegment iterationPath = iterationPaths[index];		
-		image[iterationPath.pixelIndex] += iterationPath.color;
+		PathSegment iterationPath = iterationPaths[index];
+		image[iterationPath.pixelIndex] = glm::mix(image[iterationPath.pixelIndex], iterationPath.color, 1.0f / nIters);
 	}
 }
 
@@ -783,7 +780,7 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 
 	// Assemble this iteration and apply it to the image
 	dim3 numBlocksPixels = (pixelcount + blockSize1d - 1) / blockSize1d;
-	finalGather << <numBlocksPixels, blockSize1d >> > (pixelcount, dev_image, dev_paths);
+	finalGather << <numBlocksPixels, blockSize1d >> > (pixelcount, iter, dev_image, dev_paths);
 
 	///////////////////////////////////////////////////////////////////////////
 
@@ -829,9 +826,8 @@ void denoiseImage(uchar4* pbo, int iter, int filterSize, float colorWeight, floa
 		(cam.resolution.x + blockSize2d.x - 1) / blockSize2d.x,
 		(cam.resolution.y + blockSize2d.y - 1) / blockSize2d.y);
 
-	// Denoise the current image	
-	for (int stepwidth = 0; stepwidth < ilog2(filterSize) - 1; stepwidth++) {
-		int m = 1 << stepwidth;
+	// Denoise the current image
+	for (int stepwidth = 0; stepwidth < ilog2(filterSize) - 1; stepwidth++) {		
 		if (stepwidth == 0) {			
 			kernDenoiseATrous << <blocksPerGrid2d, blockSize2d >> > (
 				cam.resolution,
