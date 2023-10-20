@@ -791,7 +791,7 @@ void pathtrace(uchar4* pbo, int frame, int iter) {
 	// Otherwise, screenshots are also acceptable.
 	// Retrieve image from GPU
 	cudaMemcpy(hst_scene->state.image.data(), dev_image,
-		pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
+		pixelcount * sizeof(glm::vec3), cudaMemcpyDeviceToHost);	
 
 	checkCUDAError("pathtrace");	
 }
@@ -854,4 +854,5 @@ void denoiseImage(uchar4* pbo, int iter, int filterSize, float colorWeight, floa
 		cudaDeviceSynchronize();
 	}
 	sendImageToPBO << <blocksPerGrid2d, blockSize2d >> > (pbo, cam.resolution, iter, dev_image_denoised);
+	cudaMemcpy(hst_scene->state.denoised.data(), dev_image_denoised, cam.resolution.x * cam.resolution.y * sizeof(glm::vec3), cudaMemcpyDeviceToHost);
 }

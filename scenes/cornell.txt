@@ -68,21 +68,21 @@ REFR        1
 REFRIOR     1.55
 EMITTANCE   0
 
-// Reflective
+// Refractive
 MATERIAL 7
-RGB         .85 .85 .15
+RGB         .98 .98 .98
 SPECEX      0
-SPECRGB     .85 .85 .15
-REFL        1
-REFR        0
-REFRIOR     0
+SPECRGB     .98 .98 .98
+REFL        0
+REFR        1
+REFRIOR     1.55
 EMITTANCE   0
 
 // Camera
 CAMERA
 RES         800 800
 FOVY        45    
-ITERATIONS  100
+ITERATIONS  5000
 DEPTH       8
 FILE        cornell
 EYE         0.0 5 9
@@ -142,7 +142,7 @@ SCALE       .01 10 10
 // Sphere
 OBJECT 6
 sphere
-material 4
+material 7
 TRANS       0 3 -2
 ROTAT       0 0 0
 SCALE       3 3 3

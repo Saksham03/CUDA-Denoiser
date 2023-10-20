@@ -214,7 +214,7 @@ void drawGui(int windowWidth, int windowHeight) {
 
     ImGui::Checkbox("Denoise", &ui_denoise);
 
-    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 1024);
+    ImGui::SliderInt("Filter Size", &ui_filterSize, 0, 2500);
     std::string noOfIters = "No. of Iters based on Filter Size: " + std::to_string(ilog2(ui_filterSize) - 1);
     ImGui::Text(noOfIters.c_str());
     ImGui::SliderFloat("Color Weight", &ui_colorWeight, 0.0f, 1.0f);

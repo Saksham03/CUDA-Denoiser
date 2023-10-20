@@ -25,7 +25,7 @@
 #define FIRST_BOUNCE_CACHED     0  && !ANTI_ALIASING
 #define DEPTH_OF_FIELD          0
 #define USE_BVH                 1
-#define REINHARD_GAMMA          0
+#define REINHARD_GAMMA          1
 
 inline int ilog2(int x) {
     int lg = 0;

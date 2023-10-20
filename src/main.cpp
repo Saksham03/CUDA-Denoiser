@@ -31,6 +31,9 @@ float ui_normalWeight = 0.35f;
 float ui_positionWeight = 0.2f;
 bool ui_saveAndExit = false;
 
+float time_rt = 0.0f;
+float time_denoise = 0.0f;
+
 static bool camchanged = true;
 static float dtheta = 0, dphi = 0;
 static glm::vec3 cammove;
@@ -107,16 +110,21 @@ void saveImage() {
 	float samples = iteration;
 	// output image file
 	image img(width, height);
+	image den(width, height);
 
 	for (int x = 0; x < width; x++) {
 		for (int y = 0; y < height; y++) {
 			int index = x + (y * width);
-			glm::vec3 pix = renderState->image[index] / samples;
+			glm::vec3 pix = renderState->image[index];
+			glm::vec3 pix_den = renderState->denoised[index];
 #if REINHARD_GAMMA
 			pix /= (pix + glm::vec3(1.0f));
 			pix = glm::pow(pix, glm::vec3(1.f / 2.2f));
+			pix_den /= (pix_den + glm::vec3(1.0f));
+			pix_den = glm::pow(pix_den, glm::vec3(1.f / 2.2f));
 #endif
 			img.setPixel(width - 1 - x, y, glm::vec3(pix) );
+			den.setPixel(width - 1 - x, y, pix_den);
 		}
 	}
 
@@ -124,9 +132,11 @@ void saveImage() {
 	std::ostringstream ss;
 	ss << filename << "." << startTimeString << "." << samples << "samp";
 	filename = "../images/" + ss.str();
-
 	// CHECKITOUT
 	img.savePNG(filename);
+	if (ui_denoise) {
+		den.savePNG(filename + "_denoised");
+	}
 	//img.saveHDR(filename);  // Save a Radiance HDR file
 }
 
@@ -154,6 +164,7 @@ void runCuda() {
 		cameraPosition += cam.lookAt;
 		cam.position = cameraPosition;
 		camchanged = false;
+		time_rt = 0;
 	}
 
 	// Map OpenGL buffer object for writing from CUDA on a single GPU
@@ -177,7 +188,8 @@ void runCuda() {
 	}
 #endif
 
-	if (iteration == 0) {		
+	if (iteration == 0) {
+		time_rt = 0;
 		pathtraceFree();
 		pathtraceInit(scene);
 	}
@@ -189,15 +201,28 @@ void runCuda() {
         iteration++;
 
         // execute the kernel
+		PerformanceTimer timer;
+		timer.startGpuTimer();
         int frame = 0;
         pathtrace(pbo_dptr, frame, iteration);
+		timer.endGpuTimer();
+		time_rt += timer.getGpuElapsedTimeForPreviousOperation();
     }
 
     if (ui_showGbuffer) {
       showGBuffer(pbo_dptr, static_cast<GBufferType>(ui_gBufSelection));
     } else {
 		if (ui_denoise) {
+			PerformanceTimer timer;
+			timer.startGpuTimer();
 			denoiseImage(pbo_dptr, iteration, ui_filterSize, ui_colorWeight, ui_normalWeight, ui_positionWeight);
+			timer.endGpuTimer();
+			if (iteration == ui_iterations && time_rt != 0.f) {
+				cout << "For no. of iters: " << ui_iterations << endl;
+				cout << "Time - Pathtracing: " << time_rt << " ms" << endl;
+				cout << "Time - Denoising: " << timer.getGpuElapsedTimeForPreviousOperation() << " ms" << endl<<endl;
+				time_rt = 0.f;
+			}
 		}
 		else {
 			showImage(pbo_dptr, iteration);

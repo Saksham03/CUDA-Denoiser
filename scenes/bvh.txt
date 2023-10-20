@@ -65,7 +65,7 @@ FOVY        45
 ITERATIONS  1000
 DEPTH       8
 FILE        cornell
-EYE         0.0 5 10.5
+EYE         0.0 5 8
 LOOKAT      0 5 0
 UP          0 1 0
 LENSRADIUS  1
@@ -123,6 +123,6 @@ SCALE       .01 10 10
 OBJECT 6
 mesh_gltf   Avocado.gltf
 material 5
-TRANS       -3 5 0
+TRANS       -1 3 -1
 ROTAT       -35 160 20
-SCALE       50 50 50
+SCALE       80 80 80
